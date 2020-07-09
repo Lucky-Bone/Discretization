@@ -71,6 +71,7 @@ def group_to_col(data, group, labels):
 
 
 def unique_nan(data):  # 存在缺失值时，unique会保留nan，crosstab之类不会保留缺失值，统一不处理缺失值
+    return np.array(list(filter(lambda ele: ele == ele, data.unique()))) # 内存&速度优化：dropna
     return np.array(data.dropna().unique())
 
 
