@@ -9,7 +9,6 @@
 
 '''
 import warnings
-
 warnings.filterwarnings('ignore')
 
 import pandas as pd
@@ -60,26 +59,21 @@ def group_to_col(data, group, labels):
     :param labels: list 分组代号
     :return:
     """
-    assert len(group) == len(labels), "分组个数与分组编号数目不一致"
-    col = data.name
-    data = pd.DataFrame(
-        {col: data, "tmp": pd.Categorical(data.values, categories=list(set(unique_nan(data)).union(labels)))})
-    for i in range(len(group)):
-        data.loc[data[col].isin(group[i]), 'tmp'] = labels[i]
-    data['tmp'] = data['tmp'].cat.set_categories(unique_nan(data['tmp']).tolist())  # 保持categories参数与数据一致
-    return data['tmp']
+    assert len(group) == len(labels), "分组个数与分组编号数目不一致!"
+    mapper = {ele: labels[i] for i, k in enumerate(group) for ele in k}
+    data = data.map(mapper)
+    return data
 
 
 def unique_nan(data):  # 存在缺失值时，unique会保留nan，crosstab之类不会保留缺失值，统一不处理缺失值
     return np.array(list(filter(lambda ele: ele == ele, data.unique()))) # 内存&速度优化：dropna
-    return np.array(data.dropna().unique())
+    # return np.array(data.dropna().unique())
 
 
 class Discretization(object):
     """
     离散化基类
     """
-    
     def __init__(self, max_interval=6, feature_type=0):
         """
         初始化参数
@@ -166,34 +160,25 @@ class equalWide(Discretization):
     """
     def dsct_general_method(self, data, var_name, var_name_target=None):
         var_name_af = var_name + '_BIN'
-        data[var_name_af] = data[var_name]
         if self.feature_type:
-            # 1. 统计各分箱（group）内正负样本分布[累计样本个数，正例样本个数，负例样本个数]
-            count = pd.crosstab(data[var_name], data[var_name_target])
-            count['ratio'] = (count.iloc[:, count.columns.values > 0].sum(axis=1) * 1.0 / count.sum(
-                axis=1)).values  # 正例样本占该取值总样本的比值
+            # 1. 统计离散特征各取值的正例样本占比
+            data[var_name_af] = 0
+            data.loc[data[var_name_target] > 0, var_name_af] = 1
+            data[var_name_af] = data.groupby(var_name)[var_name_af].transform('mean')
+        else:
+            data[var_name_af] = data[var_name].copy()
             
-            # 映射ratio至原始列
-            data[var_name_af] = pd.Categorical(data[var_name_af], categories=list(set(unique_nan(data[var_name])).union(unique_nan(count['ratio']))))
-            if len(count.index) > 50:
-                map_dict = dict(zip(count.index, count['ratio']))
-                data[var_name_af] = data.apply(lambda ele: self.encode_by_mapdict(ele[var_name], map_dict),
-                                               axis=1)  # id列
-            else:
-                for ele in count.index:
-                    data[var_name_af][data[var_name] == ele] = count['ratio'][ele]  # 非id列
-            
-            data[var_name_af], group = pd.cut(data[var_name_af], bins=self.max_interval, retbins=True,
-                                              duplicates='drop', include_lowest=True, labels=False)
-            group = group.tolist()
-            if len(group) - 1 != self.max_interval:
-                print('warning：分箱后，%s的箱体个数%s与您输入的箱体数量%s不符，可能是变量%s的相同取值过多，导致样本分布不均衡，请检查数据集。' % (
-                    var_name, len(group) - 1, self.max_interval, var_name))
-            group = self.cut_points_expand(group)
-            
-            if self.feature_type:
-                group = [list(set(data[var_name][data[var_name_af] == ele])) for ele in unique_nan(data[var_name_af])]
-            return group
+        data[var_name_af], group = pd.cut(data[var_name_af], bins=self.max_interval, retbins=True,
+                                          duplicates='drop', include_lowest=True, labels=False)
+        group = group.tolist()
+        if len(group) - 1 != self.max_interval:
+            print('warning：分箱后，%s的箱体个数%s与您输入的箱体数量%s不符，可能是变量%s的相同取值过多，导致样本分布不均衡，请检查数据集。' % (
+                var_name, len(group) - 1, self.max_interval, var_name))
+        group = self.cut_points_expand(group)
+        
+        if self.feature_type:
+            group = [list(set(data[var_name][data[var_name_af] == ele])) for ele in unique_nan(data[var_name_af])]
+        return group
 
 
 class equalFreq(Discretization):
@@ -203,36 +188,27 @@ class equalFreq(Discretization):
     
     def dsct_general_method(self, data, var_name, var_name_target=None):
         var_name_af = var_name + '_BIN'
-        data[var_name_af] = data[var_name]
         if self.feature_type:
-            # 1. 统计各分箱（group）内正负样本分布[累计样本个数，正例样本个数，负例样本个数]
-            count = pd.crosstab(data[var_name], data[var_name_target])
-            count['ratio'] = (count.iloc[:, count.columns.values > 0].sum(axis=1) * 1.0 / count.sum(
-                axis=1)).values  # 正例样本占该取值总样本的比值
+            # 1. 统计离散特征各取值的正例样本占比
+            data[var_name_af] = 0
+            data.loc[data[var_name_target] > 0, var_name_af] = 1
+            data[var_name_af] = data.groupby(var_name)[var_name_af].transform('mean')
+        else:
+            data[var_name_af] = data[var_name].copy()
             
-            # 映射ratio至原始列
-            data[var_name_af] = pd.Categorical(data[var_name_af], categories=list(set(unique_nan(data[var_name])).union(unique_nan(count['ratio']))))
-            if len(count.index) > 50:
-                map_dict = dict(zip(count.index, count['ratio']))
-                data[var_name_af] = data.apply(lambda ele: self.encode_by_mapdict(ele[var_name], map_dict),
-                                               axis=1)  # id列
-            else:
-                for ele in count.index:
-                    data[var_name_af][data[var_name] == ele] = count['ratio'][ele]  # 非id列
-            
-            data[var_name_af], group = pd.qcut(data[var_name_af], q=self.max_interval, retbins=True, precision=3,
-                                               duplicates='drop', labels=False)
-            group = group.tolist()
-            
-            if len(group) - 1 != self.max_interval:
-                print('warning：分箱后，%s的箱体个数%s与您输入的箱体数量%s不符，可能是变量%s的相同取值过多，导致样本分布不均衡，请检查数据集。' % (
-                var_name, len(group) - 1, self.max_interval, var_name))
-            group = self.cut_points_expand(group)
-            
-            if self.feature_type:
-                group = [list(set(data[var_name][data[var_name_af] == ele])) for ele in
-                         unique_nan(data[var_name_af])]
-            return group
+        data[var_name_af], group = pd.qcut(data[var_name_af], q=self.max_interval, retbins=True, precision=3,
+                                           duplicates='drop', labels=False)
+        group = group.tolist()
+        
+        if len(group) - 1 != self.max_interval:
+            print('warning：分箱后，%s的箱体个数%s与您输入的箱体数量%s不符，可能是变量%s的相同取值过多，导致样本分布不均衡，请检查数据集。' % (
+            var_name, len(group) - 1, self.max_interval, var_name))
+        group = self.cut_points_expand(group)
+        
+        if self.feature_type:
+            group = [list(set(data[var_name][data[var_name_af] == ele])) for ele in
+                     unique_nan(data[var_name_af])]
+        return group
 
 
 class SuperDiscretization(Discretization):
@@ -448,7 +424,7 @@ class DependencyDsct(SuperDiscretization):
         return chi2_list, group
     
     def update_group_by_chi2(self, count, group, idx):
-        if id == 0:
+        if idx == 0:
             merge_idx = idx + 1
         elif idx == len(group) - 1:
             merge_idx = idx - 1
@@ -546,6 +522,8 @@ class chi2Merge(DependencyDsct):
             
             # 阈值更新
             sig_level = sig_level - self.sig_level_desc  # 降低显著性水平，提高卡方阈值
+            if len(group) <= max_interval:
+                break
         print("Chi2分箱第一阶段完成！！！")
         
         # 3. 阶段2：
@@ -610,6 +588,12 @@ class bestChi(chiMerge):
         return group
     
     def check_posRate_monotone(self, count, group):
+        """
+        判断该分项的正样本比例是否单调
+        :param count:
+        :param group:
+        :return:
+        """
         if len(group) <= 2:
             return True
         count_update = [count[count.index.isin(ele)].sum(axis=0).tolist() for ele in group]
